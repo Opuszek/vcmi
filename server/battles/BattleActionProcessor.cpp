@@ -282,20 +282,23 @@ bool BattleActionProcessor::doAttackAction(const CBattleInfoCallback & battle, c
 	const bool retaliation = destinationStack->ableToRetaliate();
 	bool ferocityApplied = false;
 	int32_t defenderInitialQuantity = destinationStack->getCount();
+	bool attackWasRetaliated = false;
 
 	for (int i = 0; i < totalAttacks; ++i)
 	{
 		//first strike
 		if(i == 0 && firstStrike && retaliation && !stack->hasBonusOfType(BonusType::BLOCKS_RETALIATION) && !stack->isInvincible())
 		{
-			makeAttack(battle, destinationStack, stack, 0, stack->getPosition(), true, false, true);
+			AttackInfo attack { .distance = 0, .first = true, .ranged = false, .counter = true };
+			makeAttack(battle, destinationStack, stack, stack->getPosition(), attack);
+			attackWasRetaliated = true;
 		}
 
 		//move can cause death, eg. by walking into the moat, first strike can cause death or paralysis/petrification
 		if(stack->alive() && !stack->hasBonusOfType(BonusType::NOT_ACTIVE) && destinationStack->alive())
 		{
-			makeAttack(battle, stack, destinationStack, (i ? 0 : movementResult.distance), destinationTile, i==0, false, false);//no distance travelled on second attack
-
+			AttackInfo attack { .distance = (i ? 0 : movementResult.distance), .first = i==0, .ranged = false, .counter = false};
+			makeAttack(battle, stack, destinationStack, destinationTile, attack); //no distance travelled on second attack
 			if(!ferocityApplied && stack->hasBonusOfType(BonusType::FEROCITY))
 			{
 				auto ferocityBonus = stack->getBonus(Selector::type()(BonusType::FEROCITY));
@@ -317,7 +320,9 @@ bool BattleActionProcessor::doAttackAction(const CBattleInfoCallback & battle, c
 			&& (i == 0 && !firstStrike)
 			&& retaliation && destinationStack->ableToRetaliate())
 		{
-			makeAttack(battle, destinationStack, stack, 0, stack->getPosition(), true, false, true);
+			AttackInfo attack { .distance = 0, .first = true, .ranged = false, .counter = true};
+			makeAttack(battle, destinationStack, stack, stack->getPosition(), attack);
+			attackWasRetaliated = true;
 		}
 	}
 
@@ -337,13 +342,45 @@ bool BattleActionProcessor::doAttackAction(const CBattleInfoCallback & battle, c
 		if(maxReachbleIndex < path.first.size())
 			moveStack(battle, ba.stackNumber, path.first[maxReachbleIndex]);
 	}
+
+	removeBonuses(battle, stack, Bonus::UntilAttack);
+	removeBonuses(battle, destinationStack, Bonus::UntilBeingAttacked);
+	if (attackWasRetaliated)
+	{
+		removeBonuses(battle, stack, Bonus::UntilBeingAttacked);
+		removeBonuses(battle, destinationStack, Bonus::UntilAttack);
+	}
+
 	return true;
+}
+
+void BattleActionProcessor::removeBonuses(const CBattleInfoCallback & battle, const CStack * stack, const CSelector & selector)
+{
+	if (!stack)
+	{
+		logGlobal->error("Attempt at removing bonuses from nullptr!");
+		return;
+	}
+	BonusList bonuses = *stack->getBonuses(selector);
+
+	if (bonuses.empty())
+		return;
+
+	SetStackEffect sse;
+	sse.battleID = battle.getBattle()->getBattleID();
+	std::vector<Bonus> buffer;
+	for (const auto & bonus : bonuses)
+		buffer.push_back(*bonus);
+	sse.toRemove.emplace_back(stack->unitId(), buffer);
+
+	gameHandler->sendAndApply(sse);
 }
 
 bool BattleActionProcessor::doShootAction(const CBattleInfoCallback & battle, const BattleAction & ba)
 {
 	const CStack * stack = battle.battleGetStackByID(ba.stackNumber);
 	battle::Target target = ba.getTarget(&battle);
+	bool attackWasRetaliated = false;
 
 	if (!canStackAct(battle, stack))
 		return false;
@@ -380,7 +417,10 @@ bool BattleActionProcessor::doShootAction(const CBattleInfoCallback & battle, co
 	}
 
 	if (!firstStrike)
-		makeAttack(battle, stack, destinationStack, 0, destination, true, true, false);
+	{
+		AttackInfo attack { .distance = 0, .first = true, .ranged = true, .counter = false};
+		makeAttack(battle, stack, destinationStack, destination, attack);
+	}
 
 	//ranged counterattack
 	if (!emptyTileAreaAttack
@@ -390,7 +430,9 @@ bool BattleActionProcessor::doShootAction(const CBattleInfoCallback & battle, co
 		&& battle.battleCanShoot(destinationStack, stack->getPosition())
 		&& stack->alive()) //attacker may have died (fire shield)
 	{
-		makeAttack(battle, destinationStack, stack, 0, stack->getPosition(), true, true, true);
+		AttackInfo attack { .distance = 0, .first = true, .ranged = true, .counter = true};
+		makeAttack(battle, destinationStack, stack, stack->getPosition(), attack);
+		attackWasRetaliated = true;
 	}
 	//allow more than one additional attack
 
@@ -409,8 +451,17 @@ bool BattleActionProcessor::doShootAction(const CBattleInfoCallback & battle, co
 			&& (emptyTileAreaAttack || destinationStack->alive())
 			&& stack->shots.canUse())
 		{
-			makeAttack(battle, stack, destinationStack, 0, destination, false, true, false);
+			AttackInfo attack { .distance = 0, .first = false, .ranged = true, .counter = false};
+			makeAttack(battle, stack, destinationStack, destination, attack);
 		}
+	}
+
+	removeBonuses(battle, stack, Bonus::UntilAttack);
+	removeBonuses(battle, destinationStack, Bonus::UntilBeingAttacked);
+	if (attackWasRetaliated)
+	{
+		removeBonuses(battle, stack, Bonus::UntilBeingAttacked);
+		removeBonuses(battle, destinationStack, Bonus::UntilAttack);
 	}
 
 	return true;
@@ -985,10 +1036,10 @@ BattleActionProcessor::MovementResult BattleActionProcessor::moveStack(const CBa
 	return { static_cast<int16_t>(pathDistance), !movementSuccess, false };
 }
 
-void BattleActionProcessor::makeAttack(const CBattleInfoCallback & battle, const CStack * attacker, const CStack * defender, int distance, const BattleHex & targetHex, bool first, bool ranged, bool counter)
+void BattleActionProcessor::makeAttack(const CBattleInfoCallback & battle, const CStack * attacker, const CStack * defender, const BattleHex & targetHex, AttackInfo attackInfo)
 {
-	if(defender && first && !counter)
-		handleAttackBeforeCasting(battle, ranged, attacker, defender);
+	if(defender && attackInfo.first && !attackInfo.counter)
+		handleAttackBeforeCasting(battle, attackInfo.ranged, attacker, defender);
 
 	// If the attacker or defender is not alive before the attack action, the action should be skipped.
 	if((!attacker->alive()) || (defender && !defender->alive()))
@@ -1005,9 +1056,9 @@ void BattleActionProcessor::makeAttack(const CBattleInfoCallback & battle, const
 
 	std::shared_ptr<battle::CUnitState> attackerState = attacker->acquireState();
 
-	if(ranged)
+	if(attackInfo.ranged)
 		bat.flags |= BattleAttack::SHOT;
-	if(counter)
+	if(attackInfo.counter)
 		bat.flags |= BattleAttack::COUNTER;
 
 	const int attackerLuck = attacker->luckVal();
@@ -1034,21 +1085,24 @@ void BattleActionProcessor::makeAttack(const CBattleInfoCallback & battle, const
 
 	// only primary target
 	if(defender && defender->alive())
-		applyBattleEffects(battle, bat, attackerState, fireShield, defender, healInfo, distance, false);
+		applyBattleEffects(battle, bat, attackerState, fireShield, defender, healInfo, attackInfo.distance, false);
 
 	//multiple-hex normal attack
 	const auto & [attackedCreatures, useCustomAnimation] = battle.getAttackedCreatures(attacker, targetHex, bat.shot()); //creatures other than primary target
 	for(const CStack * stack : attackedCreatures)
 	{
 		if(stack != defender && stack->alive()) //do not hit same stack twice
-			applyBattleEffects(battle, bat, attackerState, fireShield, stack, healInfo, distance, true);
+		{
+			applyBattleEffects(battle, bat, attackerState, fireShield, stack, healInfo, attackInfo.distance, true);
+			removeBonuses(battle, stack, Bonus::UntilBeingAttacked);
+		}
 	}
 
 	if (useCustomAnimation)
 		bat.flags |= BattleAttack::CUSTOM_ANIMATION;
 
 	std::shared_ptr<const Bonus> bonus = attacker->getBonus(Selector::type()(BonusType::SPELL_LIKE_ATTACK));
-	if(bonus && ranged && bonus->subtype.hasValue()) //TODO: make it work in melee?
+	if(bonus && attackInfo.ranged && bonus->subtype.hasValue()) //TODO: make it work in melee?
 	{
 		//this is need for displaying hit animation
 		bat.flags |= BattleAttack::SPELL_LIKE;
@@ -1072,7 +1126,8 @@ void BattleActionProcessor::makeAttack(const CBattleInfoCallback & battle, const
 		{
 			if(stack != defender && stack->alive()) //do not hit same stack twice
 			{
-				applyBattleEffects(battle, bat, attackerState, fireShield, stack, healInfo, distance, true);
+				applyBattleEffects(battle, bat, attackerState, fireShield, stack, healInfo, attackInfo.distance, true);
+				removeBonuses(battle, stack, Bonus::UntilBeingAttacked);
 			}
 		}
 
@@ -1088,7 +1143,7 @@ void BattleActionProcessor::makeAttack(const CBattleInfoCallback & battle, const
 		}
 	}
 
-	attackerState->afterAttack(ranged, counter);
+	attackerState->afterAttack(attackInfo.ranged, attackInfo.counter);
 
 	{
 		UnitChanges info(attackerState->unitId(), UnitChanges::EOperation::RESET_STATE);
@@ -1166,6 +1221,7 @@ void BattleActionProcessor::makeAttack(const CBattleInfoCallback & battle, const
 			pack.battleID = battle.getBattle()->getBattleID();
 			pack.stacks.push_back(bsa);
 			gameHandler->sendAndApply(pack);
+			removeBonuses(battle, attacker, Bonus::UntilBeingAttacked);
 
 			// TODO: this is already implemented in Damage::describeEffect()
 			{
@@ -1182,7 +1238,7 @@ void BattleActionProcessor::makeAttack(const CBattleInfoCallback & battle, const
 	gameHandler->sendAndApply(blm);
 
 	if(defender)
-		handleAfterAttackCasting(battle, ranged, attacker, defender);
+		handleAfterAttackCasting(battle, attackInfo.ranged, attacker, defender);
 }
 
 void BattleActionProcessor::attackCasting(const CBattleInfoCallback & battle, bool ranged, BonusType attackMode, const battle::Unit * attacker, const CStack * defender)

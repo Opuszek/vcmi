@@ -1297,8 +1297,6 @@ void GameStatePackVisitor::visitBattleAttack(BattleAttack & pack)
 	for(BattleStackAttacked & stack : pack.bsa)
 		gs.getBattle(pack.battleID)->setUnitState(stack.newState.id, stack.newState.data, stack.newState.healthDelta);
 
-	attacker->removeBonusesRecursive(Bonus::UntilAttack);
-
 	if(!pack.counter())
 		attacker->removeBonusesRecursive(Bonus::UntilOwnAttack);
 }
@@ -1653,6 +1651,25 @@ void BattleStatePackVisitor::visitStacksInjured(StacksInjured & pack)
 	for(const BattleStackAttacked & stack : pack.stacks)
 	{
 		battleState.setUnitState(stack.newState.id, stack.newState.data, stack.newState.healthDelta);
+	}
+
+	auto stacksInjuredBySpell = battleState.getStacksIf([&pack](const CStack * s)
+	{
+		for (const BattleStackAttacked & injuryInfo : pack.stacks)
+		{
+			if (injuryInfo.stackAttacked == s->unitId())
+				return injuryInfo.damagedBySpell() || injuryInfo.isSpellEffect();
+		}
+		return false;
+	});
+
+	for (auto * stack : stacksInjuredBySpell)
+	{
+		BonusList bonuses = *stack->getBonuses(Bonus::UntilBeingAttacked);
+		std::vector<Bonus> buffer;
+		for (const auto & bonus : bonuses)
+			buffer.push_back(*bonus);
+		battleState.removeUnitBonus(stack->unitId(), buffer);
 	}
 }
 

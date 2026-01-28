@@ -197,7 +197,7 @@ struct BattleStackAttacked
 	ui32 killedAmount = 0;
 	int64_t damageAmount = 0;
 	UnitChanges newState;
-	enum EFlags { KILLED = 1, SECONDARY = 2, REBIRTH = 4, CLONE_KILLED = 8, SPELL_EFFECT = 16, FIRE_SHIELD = 32, };
+	enum EFlags { KILLED = 1, SECONDARY = 2, REBIRTH = 4, CLONE_KILLED = 8, SPELL_EFFECT = 16, FIRE_SHIELD = 32, DAMAGED_BY_SPELL = 64 };
 	ui32 flags = 0; //uses EFlags (above)
 	SpellID spellID = SpellID::NONE; //only if flag SPELL_EFFECT is set
 
@@ -214,7 +214,7 @@ struct BattleStackAttacked
 		return flags & SECONDARY;
 	}
 	///Attacked with spell (SPELL_LIKE_ATTACK)
-	bool isSpell() const
+	bool isSpellEffect() const
 	{
 		return flags & SPELL_EFFECT;
 	}
@@ -225,6 +225,11 @@ struct BattleStackAttacked
 	bool fireShield() const
 	{
 		return flags & FIRE_SHIELD;
+	}
+	// hero and creature spells
+	bool damagedBySpell() const
+	{
+		return flags & DAMAGED_BY_SPELL;
 	}
 
 	template <typename Handler> void serialize(Handler & h)

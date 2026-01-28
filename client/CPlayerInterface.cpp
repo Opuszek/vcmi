@@ -929,7 +929,7 @@ void CPlayerInterface::battleStacksAttacked(const BattleID & battleID, const std
 		info.cloneKilled    = elem.cloneKilled();
 		info.fireShield     = elem.fireShield();
 
-		if (elem.isSpell())
+		if (elem.isSpellEffect())
 			info.spellEffect = elem.spellID;
 
 		arg.push_back(info);

@@ -56,6 +56,7 @@ void Damage::apply(ServerCallback * server, const Mechanics * m, const EffectTar
 			BattleStackAttacked bsa;
 			bsa.damageAmount = damageForTarget(targetIndex, m, unit);
 			bsa.stackAttacked = unit->unitId();
+			bsa.flags = BattleStackAttacked::DAMAGED_BY_SPELL;
 			bsa.attackerID = -1;
 			auto newState = unit->acquireState();
 			CStack::prepareAttacked(bsa, *server->getRNG(), newState);

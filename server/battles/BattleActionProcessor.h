@@ -46,13 +46,21 @@ class BattleActionProcessor : boost::noncopyable
 		bool invalidRequest;
 	};
 
+	struct AttackInfo
+	{
+		int distance;
+		bool first;
+		bool ranged;
+		bool counter;
+	};
+
 	using FireShieldInfo = std::vector<std::pair<const CStack *, int64_t>>;
 
 	BattleProcessor * owner;
 	CGameHandler * gameHandler;
 
 	MovementResult moveStack(const CBattleInfoCallback & battle, int stack, BattleHex dest); //returned value - travelled distance
-	void makeAttack(const CBattleInfoCallback & battle, const CStack * attacker, const CStack * defender, int distance, const BattleHex & targetHex, bool first, bool ranged, bool counter);
+	void makeAttack(const CBattleInfoCallback & battle, const CStack * attacker, const CStack * defender, const BattleHex & targetHex, AttackInfo attack);
 
 	void handleAttackBeforeCasting(const CBattleInfoCallback & battle, bool ranged, const CStack * attacker, const CStack * defender);
 
@@ -65,6 +73,7 @@ class BattleActionProcessor : boost::noncopyable
 
 	// damage, drain life & fire shield; returns amount of drained life
 	void applyBattleEffects(const CBattleInfoCallback & battle, BattleAttack & bat, std::shared_ptr<battle::CUnitState> attackerState, FireShieldInfo & fireShield, const CStack * def, battle::HealInfo & healInfo, int distance, bool secondary) const;
+	void removeBonuses(const CBattleInfoCallback & battle, const CStack * stack, const CSelector & selector);
 
 	void sendGenericKilledLog(const CBattleInfoCallback & battle, const CStack * defender, int32_t killed, bool multiple);
 	void addGenericKilledLog(BattleLogMessage & blm, const CStack * defender, int32_t killed, bool multiple) const;
