@@ -21,9 +21,10 @@ function Script:convertBonuses(mechanics)
 		if not nb.turns or nb.turns == 0 then
 			nb.turns = duration
 		end
-
+		
 		nb.sourceType = "SPELL_EFFECT"
 		nb.sourceID = spellKey
+		nb.sourceSecondaryID = mechanics:getEffectLevel()
 
 		converted[name] = nb
 	end
