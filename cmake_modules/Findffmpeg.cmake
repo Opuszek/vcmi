@@ -66,6 +66,7 @@ function (_ffmpeg_find component headername)
       /usr/local/lib
       /usr/local/lib64
       /usr/lib
+      /usr/lib/x86_64-linux-gnu/
       /usr/lib64
       /sw/lib
       /opt/local/lib
@@ -73,6 +74,11 @@ function (_ffmpeg_find component headername)
       /opt/lib
       /usr/freeware/lib64
       "${ffmpeg_ROOT}/bin"
+    DOC "FFMPEG's ${component} library" NO_DEFAULT_PATH)
+
+  find_library("ffmpeg_${component}_LIBRARY"
+    NAMES
+      "${component}"
     DOC "FFMPEG's ${component} library")
   mark_as_advanced("ffmpeg_${component}_LIBRARY")
 
